@@ -1,35 +1,62 @@
-// Declares clang::SyntaxOnlyAction.
-#include "clang/Frontend/FrontendActions.h"
-#include "clang/Tooling/CommonOptionsParser.h"
+#include "clang/AST/AST.h"
+#include "clang/AST/ASTConsumer.h"
+#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/Frontend/CompilerInstance.h"
+#include "clang/Frontend/FrontendAction.h"
 #include "clang/Tooling/Tooling.h"
-// Declares llvm::cl::extrahelp.
-#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/raw_ostream.h"
 
-using namespace clang::tooling;
-using namespace llvm;
+using namespace clang;
 
-// Apply a custom category to all command-line options so that they are the
-// only ones displayed.
-static llvm::cl::OptionCategory MyToolCategory("my-tool options");
+class MyASTVisitor : public RecursiveASTVisitor<MyASTVisitor> {
+public:
+  explicit MyASTVisitor(ASTContext *Context)
+      : Context(Context) {}
 
-// CommonOptionsParser declares HelpMessage with a description of the common
-// command-line options related to the compilation database and input files.
-// It's nice to have this help message in all tools.
-static cl::extrahelp CommonHelp(CommonOptionsParser::HelpMessage);
+  bool VisitDecl(Decl *D) {
+    FullSourceLoc FullLocation = Context->getFullLoc(D->getBeginLoc());
+    if (FullLocation.isValid())
+      llvm::outs() << "Found declaration at "
+                   << FullLocation.getSpellingLineNumber() << ":"
+                   << FullLocation.getSpellingColumnNumber() << "\n";
 
-// A help message for this specific tool can be added afterwards.
-static cl::extrahelp MoreHelp("\nMore help text...\n");
+    FullSourceLoc FullEndLocation = Context->getFullLoc(D->getEndLoc());
+    if (FullEndLocation.isValid())
+      llvm::outs() << "Declaration ends at "
+                   << FullEndLocation.getSpellingLineNumber() << ":"
+                   << FullEndLocation.getSpellingColumnNumber() << "\n";
 
-int main(int argc, const char **argv) {
-  auto ExpectedParser = CommonOptionsParser::create(argc, argv, MyToolCategory);
-  if (!ExpectedParser) {
-    // Fail gracefully for unsupported options.
-    llvm::errs() << ExpectedParser.takeError();
-    return 1;
+    return true;
   }
-  CommonOptionsParser& OptionsParser = ExpectedParser.get();
-  ClangTool Tool(OptionsParser.getCompilations(),
-                 OptionsParser.getSourcePathList());
-  return Tool.run(newFrontendActionFactory<clang::SyntaxOnlyAction>().get());
+
+private:
+  ASTContext *Context;
+};
+
+class MyASTConsumer : public ASTConsumer {
+public:
+  explicit MyASTConsumer(ASTContext *Context)
+      : Visitor(Context) {}
+
+  virtual void HandleTranslationUnit(ASTContext &Context) {
+    Visitor.TraverseDecl(Context.getTranslationUnitDecl());
+  }
+
+private:
+  MyASTVisitor Visitor;
+};
+
+class MyFrontendAction : public ASTFrontendAction {
+public:
+  virtual std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI,
+                                                         StringRef file) {
+    return std::unique_ptr<ASTConsumer>(new MyASTConsumer(&CI.getASTContext()));
+  }
+};
+
+int main(int argc, char **argv) {
+  if (argc > 1) {
+    clang::tooling::runToolOnCode(new MyFrontendAction, argv[1]);
+  }
 }
 
