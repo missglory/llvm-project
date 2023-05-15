@@ -64,7 +64,7 @@ namespace tooling {
 /// \endcode
 class CommonOptionsParser {
 
-protected:
+public:
   /// Parses command-line, initializes a compilation database.
   ///
   /// This constructor can change argc and argv contents, e.g. consume

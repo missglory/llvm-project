@@ -3,10 +3,14 @@
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendAction.h"
+#include "clang/Tooling/CommonOptionsParser.h"
 #include "clang/Tooling/Tooling.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
+using namespace clang::tooling;
+using namespace llvm;
 
 class MyASTVisitor : public RecursiveASTVisitor<MyASTVisitor> {
 public:
@@ -14,17 +18,20 @@ public:
       : Context(Context) {}
 
   bool VisitDecl(Decl *D) {
-    FullSourceLoc FullLocation = Context->getFullLoc(D->getBeginLoc());
-    if (FullLocation.isValid())
-      llvm::outs() << "Found declaration at "
-                   << FullLocation.getSpellingLineNumber() << ":"
-                   << FullLocation.getSpellingColumnNumber() << "\n";
+    SourceManager &SM = Context->getSourceManager();
+    if (SM.isInMainFile(D->getLocation())) {
+      FullSourceLoc FullLocation = Context->getFullLoc(D->getBeginLoc());
+      if (FullLocation.isValid())
+        llvm::outs() << "Found declaration at "
+                     << FullLocation.getSpellingLineNumber() << ":"
+                     << FullLocation.getSpellingColumnNumber() << "\n";
 
-    FullSourceLoc FullEndLocation = Context->getFullLoc(D->getEndLoc());
-    if (FullEndLocation.isValid())
-      llvm::outs() << "Declaration ends at "
-                   << FullEndLocation.getSpellingLineNumber() << ":"
-                   << FullEndLocation.getSpellingColumnNumber() << "\n";
+      FullSourceLoc FullEndLocation = Context->getFullLoc(D->getEndLoc());
+      if (FullEndLocation.isValid())
+        llvm::outs() << "Declaration ends at "
+                     << FullEndLocation.getSpellingLineNumber() << ":"
+                     << FullEndLocation.getSpellingColumnNumber() << "\n";
+    }
 
     return true;
   }
@@ -54,9 +61,12 @@ public:
   }
 };
 
-int main(int argc, char **argv) {
-  if (argc > 1) {
-    clang::tooling::runToolOnCode(std::make_unique<MyFrontendAction>(), argv[1]);
-  }
+static llvm::cl::OptionCategory MyToolCategory("my-tool options");
+
+int main(int argc, const char **argv) {
+  CommonOptionsParser OptionsParser(argc, argv, MyToolCategory);
+  ClangTool Tool(OptionsParser.getCompilations(),
+                 OptionsParser.getSourcePathList());
+  return Tool.run(newFrontendActionFactory<MyFrontendAction>().get());
 }
 
